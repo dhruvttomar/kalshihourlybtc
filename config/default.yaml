@@ -1,0 +1,55 @@
+strategy:
+  min_minutes_into_hour: 25
+  hour_end_cutoff_seconds: 60
+  yes_price_min: 0.98
+  yes_price_max: 0.99
+  buffer_floor_usd: 550.0
+  buffer_sigma_multiplier: 2.0
+  rv_baseline_multiplier: 1.5
+  rv_hard_ceiling_annualized: 0.70
+  max_lines_per_hour: 2
+  max_capital_per_line_usd: 1000.0
+  max_capital_per_hour_usd: 2000.0
+  orderbook_depth_safety_factor: 2.0
+  emergency_exit_threshold: 0.93
+  emergency_exit_rv_threshold: 0.70
+  emergency_exit_min_minutes_remaining: 10
+  max_day_risk_level_to_trade: 1  # 0=safe, 1=caution, 2=avoid, 3=hard no
+
+risk:
+  daily_loss_limit_pct: 0.03
+  weekly_loss_limit_pct: 0.07
+  vol_spike_5min_threshold: 0.02
+  vol_spike_5min_pause_minutes: 60
+  vol_spike_30min_threshold: 0.05
+  vol_spike_30min_pause_hours: 24
+  starting_bankroll_usd: 50000.0  # configure to actual capital
+
+kalshi:
+  api_base_url: "https://api.elections.kalshi.com/trade-api/v2"
+  ws_url: "wss://api.elections.kalshi.com/trade-api/ws/v2"
+  # CONFIRMED ACTIVE as of 2026-05-21 via GET /trade-api/v2/series/KXBTCD
+  market_series_ticker: "KXBTCD"
+  poll_interval_seconds: 5
+
+coinbase:
+  ws_url: "wss://advanced-trade-ws.coinbase.com"
+  product_id: "BTC-USD"
+  reconnect_backoff_initial: 1.0
+  reconnect_backoff_max: 60.0
+
+finnhub:
+  base_url: "https://finnhub.io/api/v1"
+  refresh_time_et: "00:05"  # daily refresh at 12:05 AM ET
+
+alerts:
+  discord_webhook_url: null  # set DISCORD_WEBHOOK_URL in .env
+  alert_on_fill: true
+  alert_on_circuit_breaker: true
+  alert_on_loss_limit: true
+  alert_on_error: true
+
+logging:
+  level: INFO
+  log_file: "logs/bot.log"
+  rotate_daily: true

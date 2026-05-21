@@ -1,0 +1,7 @@
+{
+  "flat_1000": [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
+  "two_prices": [100.0, 101.0],
+  "one_price": [100.0],
+  "known_sequence_60": null,
+  "note": "known_sequence_60 is generated in the test from a seed for reproducibility"
+}
