@@ -144,6 +144,21 @@ class Database:
                 "SELECT * FROM lines WHERE hour_key = ?", (hour_key,)
             ).fetchall()
 
+    def update_line_fill(self, line_id: str, additional_usd: float) -> None:
+        """Add `additional_usd` to cumulative_filled_usd for a line."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE lines SET cumulative_filled_usd = cumulative_filled_usd + ? WHERE id = ?",
+                (additional_usd, line_id),
+            )
+
+    def get_open_lines(self) -> list[sqlite3.Row]:
+        """All lines where settled_at IS NULL (not yet settled)."""
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT * FROM lines WHERE settled_at IS NULL ORDER BY rowid"
+            ).fetchall()
+
     def settle_line(
         self, line_id: str, outcome: str, final_pnl_usd: float, settled_at: str | None = None
     ) -> None:
