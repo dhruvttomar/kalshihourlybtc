@@ -292,7 +292,7 @@ class KalshiClient:
                 "order": {
                     "order_id": synthetic_id,
                     "client_order_id": client_order_id,
-                    "status": "resting",
+                    "status": "filled",   # paper orders assumed to fill immediately
                     "count": quantity,
                     "yes_price": price_cents,
                     "notional_usd": notional,
@@ -322,6 +322,17 @@ class KalshiClient:
         except Exception as exc:
             log.warning("cancel_order(%s) failed: %s", order_id, exc)
             return False
+
+    async def get_order_status(self, order_id: str) -> dict:
+        """Fetch current status of an order. Returns {} in paper mode."""
+        if self._paper_mode:
+            return {"order_id": order_id, "status": "filled"}
+        try:
+            data = await self._get(f"/portfolio/orders/{order_id}", auth="trading")
+            return data.get("order", {})
+        except Exception as exc:
+            log.warning("get_order_status(%s) failed: %s", order_id, exc)
+            return {}
 
     async def get_open_positions(self) -> list[dict]:
         """Return open positions from Kalshi portfolio (empty in paper mode)."""

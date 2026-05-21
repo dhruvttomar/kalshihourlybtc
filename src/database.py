@@ -181,6 +181,27 @@ class Database:
             cur = conn.execute(sql, event)
             return cur.lastrowid  # type: ignore[return-value]
 
+    # ── risk events ───────────────────────────────────────────────────────────
+
+    def get_active_risk_events(self, now_iso: str) -> list[sqlite3.Row]:
+        """Return risk events whose pause_until is after now_iso."""
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT * FROM risk_events WHERE pause_until > ? ORDER BY triggered_at DESC",
+                (now_iso,),
+            ).fetchall()
+
+    # ── realized P&L ──────────────────────────────────────────────────────────
+
+    def get_realized_pnl_since(self, since_iso: str) -> float:
+        """Sum of final_pnl_usd for all settled lines with settled_at >= since_iso."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(final_pnl_usd), 0.0) FROM lines WHERE settled_at >= ?",
+                (since_iso,),
+            ).fetchone()
+            return float(row[0]) if row else 0.0
+
     # ── price snapshots ───────────────────────────────────────────────────────
 
     def record_price_snapshot(

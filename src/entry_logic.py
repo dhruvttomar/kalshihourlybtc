@@ -176,4 +176,6 @@ def evaluate_entry(
         side=trade.side,
         target_price_cents=target_price_cents,
         target_size_usd=target_size,
+        floor_strike=market.floor_strike,
+        market_close_time=market.close_time,
     )

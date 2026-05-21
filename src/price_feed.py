@@ -105,6 +105,12 @@ class PriceFeed:
             is_stale=is_stale,
         )
 
+    def get_recent_prices(self, n: int) -> list[float]:
+        """Return up to the last n 1-minute close prices (chronological order)."""
+        data = list(self._deque)
+        prices = [p for _, p in data]
+        return prices[-n:] if len(prices) >= n else prices
+
     async def run(self) -> None:
         """Main loop — bootstraps then maintains WebSocket connection forever."""
         self._load_persisted_state()

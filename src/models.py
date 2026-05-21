@@ -1,3 +1,4 @@
+
 """Shared dataclasses and protocols used across modules."""
 from __future__ import annotations
 
@@ -108,3 +109,5 @@ class EntryDecision:
     side: str | None = None
     target_price_cents: int | None = None   # 98 or 99
     target_size_usd: float | None = None
+    floor_strike: float | None = None       # BTC strike price in dollars
+    market_close_time: datetime | None = None  # UTC settlement time
