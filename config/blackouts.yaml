@@ -1,0 +1,106 @@
+# All times are in US Eastern Time (ET), DST-aware.
+# The bot uses zoneinfo.ZoneInfo("America/New_York") for all comparisons.
+
+# ── Universal daily blackout windows (repeat every calendar day) ──────────────
+# "top_of_hour" is handled specially in code (blocks minute == 0 of every hour).
+universal_daily:
+  - name: "Deribit daily options expiry"
+    start: "03:30"
+    end: "04:15"
+    severity: high
+
+  - name: "US equity market open"
+    start: "09:25"
+    end: "09:45"
+    severity: high
+    weekdays_only: true
+
+  - name: "Peak intraday volatility (UTC tea time)"
+    start: "12:00"
+    end: "13:00"
+    severity: high
+
+  - name: "US equity market close"
+    start: "15:45"
+    end: "16:15"
+    severity: high
+    weekdays_only: true
+
+  - name: "CME daily settlement"
+    start: "17:55"
+    end: "18:05"
+    severity: high
+    weekdays_only: true
+
+# ── Weekly recurring blackout windows ─────────────────────────────────────────
+# day: python weekday name (monday=0 ... sunday=6 in isoweekday, but we use name)
+weekly:
+  - name: "CME futures Sunday reopen"
+    day: sunday
+    start: "17:45"
+    end: "20:00"
+
+  - name: "Monday US session block"
+    day: monday
+    start: "09:00"
+    end: "16:00"
+
+  - name: "Friday weekly options expiry"
+    day: friday
+    start: "04:00"
+    end: "05:00"
+
+  - name: "Friday CME weekly close"
+    day: friday
+    start: "16:45"
+    end: "18:00"
+
+# ── Day-of-week hourly risk profiles ──────────────────────────────────────────
+# 24-element arrays, index = ET hour (0–23).
+# Values: 0=trade-friendly, 1=caution, 2=avoid, 3=hard no.
+# Trading is blocked when risk level > max_day_risk_level_to_trade (config default: 1).
+day_risk_profiles:
+  sunday:    [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,2,2,1,1]
+  monday:    [0,0,0,0,0,0,1,1,1,3,3,3,3,3,3,3,3,2,1,1,1,0,0,0]
+  tuesday:   [0,0,0,0,0,0,0,0,2,2,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
+  wednesday: [0,0,0,0,0,0,0,0,2,2,1,1,1,1,2,2,2,1,1,1,1,0,0,0]
+  thursday:  [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
+  friday:    [0,0,0,0,2,1,1,1,2,2,2,1,1,1,1,2,2,1,1,1,1,0,0,0]
+  saturday:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+
+# ── Economic calendar event triggers ─────────────────────────────────────────
+# keywords: case-insensitive substrings matched against Finnhub event names.
+# offsets are in minutes relative to the event time (negative = before event).
+# Finnhub returns event times in UTC.
+economic_calendar_triggers:
+  - keywords: ["FOMC", "Federal Reserve", "Fed Rate", "Fed Interest", "Federal Open Market"]
+    blackout_start_offset_minutes: -15
+    blackout_end_offset_minutes: 150
+
+  - keywords: ["CPI", "Consumer Price Index"]
+    blackout_start_offset_minutes: -30
+    blackout_end_offset_minutes: 120
+
+  - keywords: ["PPI", "Producer Price Index"]
+    blackout_start_offset_minutes: -30
+    blackout_end_offset_minutes: 90
+
+  - keywords: ["Nonfarm Payroll", "Non-Farm Payroll", "NFP"]
+    blackout_start_offset_minutes: -30
+    blackout_end_offset_minutes: 120
+
+  - keywords: ["PCE", "Personal Consumption Expenditure"]
+    blackout_start_offset_minutes: -30
+    blackout_end_offset_minutes: 120
+
+  - keywords: ["GDP", "Gross Domestic Product"]
+    blackout_start_offset_minutes: -30
+    blackout_end_offset_minutes: 120
+
+  - keywords: ["Retail Sales", "Core Retail"]
+    blackout_start_offset_minutes: -15
+    blackout_end_offset_minutes: 60
+
+  - keywords: ["Initial Jobless Claims", "Jobless Claims", "Unemployment Claims"]
+    blackout_start_offset_minutes: -5
+    blackout_end_offset_minutes: 15
