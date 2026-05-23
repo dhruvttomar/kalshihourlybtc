@@ -23,11 +23,11 @@ import websockets.exceptions
 
 from src.vol_calculator import realized_vol_annualized
 
-# Binance global WebSocket (public, no auth, works worldwide)
-_BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
-_BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+# Kraken WebSocket — public, no auth, no geo-restrictions from US servers
+_KRAKEN_WS_URL = "wss://ws.kraken.com"
+_KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC"
 _COINBASE_REST_URL = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
-_KRAKEN_URL = "https://api.kraken.com/0/public/Ticker"
+_KRAKEN_SPOT_URL = "https://api.kraken.com/0/public/Ticker"
 
 _MINUTES_PER_YEAR = 525_600
 _BUFFER_MINUTES = 10_080  # 7 days of 1-min data for rv_baseline_7d_median
@@ -63,12 +63,12 @@ class PriceFeed:
     ):
         # Accept either a CoinbaseConfig object or fall back to defaults
         if config is not None and hasattr(config, "ws_url"):
-            self._ws_url = config.ws_url
+            self._ws_url = config.ws_url if "kraken" in config.ws_url else _KRAKEN_WS_URL
             self._product_id = getattr(config, "product_id", "BTC-USD")
             self._backoff_initial = getattr(config, "reconnect_backoff_initial", 1.0)
             self._backoff_max = getattr(config, "reconnect_backoff_max", 60.0)
         else:
-            self._ws_url = _BINANCE_WS_URL
+            self._ws_url = _KRAKEN_WS_URL
             self._product_id = "BTC-USD"
             self._backoff_initial = 1.0
             self._backoff_max = 60.0
@@ -138,14 +138,21 @@ class PriceFeed:
     # ── WebSocket loop ────────────────────────────────────────────────────────
 
     async def _ws_loop(self) -> None:
-        # Binance aggTrade stream: connect directly to the stream URL, no
-        # subscription message needed. Each message is a single trade with
-        # field "p" (price as string) and "T" (trade time ms).
+        # Kraken WS v1: subscribe to ticker, parse last-trade price from "c" field.
+        # Message format: [channelID, {"c": ["price", "qty"], ...}, "ticker", "XBT/USD"]
+        subscribe_msg = json.dumps({
+            "event": "subscribe",
+            "pair": ["XBT/USD"],
+            "subscription": {"name": "ticker"},
+        })
         async with websockets.connect(self._ws_url, ping_interval=20, ping_timeout=30) as ws:
+            await ws.send(subscribe_msg)
             last_persist = time.time()
             async for raw in ws:
                 msg = json.loads(raw)
-                price_str = msg.get("p")
+                if not isinstance(msg, list) or len(msg) != 4 or msg[2] != "ticker":
+                    continue
+                price_str = msg[1].get("c", [None])[0]
                 if not price_str:
                     continue
                 price = float(price_str)
@@ -170,13 +177,11 @@ class PriceFeed:
     # ── Bootstrap ─────────────────────────────────────────────────────────────
 
     def _bootstrap_from_binance(self) -> None:
-        """
-        Pre-fill deque with historical 1-min closes from Binance.
-        Falls back to Coinbase REST → Kraken spot if Binance is unavailable.
-        Fetches as many as _BUFFER_MINUTES candles (up to 7 days).
-        """
+        """Pre-fill deque with historical 1-min closes from Kraken OHLC."""
+        import logging
+        _log = logging.getLogger(__name__)
         try:
-            closes = self._fetch_binance_klines(_BUFFER_MINUTES)
+            closes = self._fetch_kraken_ohlc(_BUFFER_MINUTES)
             if closes:
                 now = time.time()
                 self._deque.clear()
@@ -185,11 +190,12 @@ class PriceFeed:
                     self._deque.append((ts, price))
                 self._last_tick_price = closes[-1]
                 self._last_tick_ts = time.time()
+                _log.info("price_feed bootstrapped %d candles from Kraken", len(closes))
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Kraken OHLC bootstrap failed: %s — falling back to spot", exc)
 
-        # Fallback: single spot price — vol will be unavailable until enough data accumulates
+        # Fallback: single spot price
         try:
             spot = self._fetch_coinbase_spot()
         except Exception:
@@ -202,28 +208,29 @@ class PriceFeed:
         self._last_tick_price = spot
         self._last_tick_ts = now
 
-    def _fetch_binance_klines(self, n: int) -> list[float]:
+    def _fetch_kraken_ohlc(self, n: int) -> list[float]:
+        """Fetch up to n 1-min closes from Kraken, oldest first."""
         closes: list[float] = []
-        end_ms = int(time.time() * 1000)
-        remaining = n
-        while remaining > 0:
-            limit = min(remaining, 1000)
-            r = requests.get(_BINANCE_KLINES_URL, params={
-                "symbol": "BTCUSDT",
-                "interval": "1m",
-                "endTime": end_ms,
-                "limit": limit,
-            }, timeout=15)
+        since = int(time.time()) - n * 60
+        while len(closes) < n:
+            r = requests.get(
+                _KRAKEN_OHLC_URL,
+                params={"pair": "XBTUSD", "interval": 1, "since": since},
+                timeout=15,
+            )
             r.raise_for_status()
-            candles = r.json()
+            data = r.json()
+            if data.get("error"):
+                raise ValueError(f"Kraken OHLC error: {data['error']}")
+            result = data.get("result", {})
+            candles = result.get("XXBTZUSD") or result.get("XBTUSD") or []
             if not candles:
                 break
-            batch = [float(c[4]) for c in candles]  # index 4 = close price
-            closes = batch + closes
-            end_ms = int(candles[0][0]) - 1  # open_time of oldest candle − 1ms
-            remaining -= len(candles)
-            if len(candles) < limit:
+            closes.extend(float(c[4]) for c in candles)  # index 4 = close
+            last_ts = int(data["result"].get("last", 0))
+            if not last_ts or len(candles) < 720:
                 break
+            since = last_ts
         return closes[-n:]
 
     def _fetch_coinbase_spot(self) -> float:
@@ -232,7 +239,7 @@ class PriceFeed:
         return float(r.json()["data"]["amount"])
 
     def _fetch_kraken_spot(self) -> float:
-        r = requests.get(_KRAKEN_URL, params={"pair": "XBTUSD"}, timeout=6)
+        r = requests.get(_KRAKEN_SPOT_URL, params={"pair": "XBTUSD"}, timeout=6)
         r.raise_for_status()
         data = r.json()["result"]
         ticker = next(iter(data.values()))
