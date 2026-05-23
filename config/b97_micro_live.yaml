@@ -1,0 +1,69 @@
+# B-97 Micro Live — $10/trade validation config
+#
+# Purpose: run the B-97 strategy on a real Kalshi account with $10 fills
+# instead of $1,000. Real orders, real fills, real data — but capped
+# exposure of ~$10 per trade (worst-case loss = fill price × contracts).
+#
+# Run with:
+#   python -m src.main --live --config config/b97_micro_live.yaml
+#
+# Expected P&L at this scale (from 4yr backtest, $10 fill):
+#   Win:  +$0.27/trade (10 contracts × $0.03 net)
+#   Loss: -$9.70/trade (contracts expire worthless)
+#   Break-even win rate: 97.3%  |  Observed: 99.6%
+
+strategy:
+  min_minutes_into_hour: 25
+  hour_end_cutoff_seconds: 60
+  yes_price_min: 0.95          # accept 95¢–97¢ YES contracts
+  yes_price_max: 0.97          # B-97: cap at 97¢
+  buffer_floor_usd: 400.0      # B-97: $400 minimum buffer below spot
+  buffer_sigma_multiplier: 2.0
+  rv_baseline_multiplier: 1.5
+  rv_hard_ceiling_annualized: 0.70
+  max_lines_per_hour: 1        # one $10 line per hour
+  max_capital_per_line_usd: 10.0
+  max_capital_per_hour_usd: 10.0
+  orderbook_depth_safety_factor: 2.0
+  emergency_exit_threshold: 0.93
+  emergency_exit_rv_threshold: 0.70
+  emergency_exit_min_minutes_remaining: 10
+  max_day_risk_level_to_trade: 1
+
+risk:
+  daily_loss_limit_pct: 0.15   # 15% of bankroll → ~$15/day max loss (1-2 trades)
+  weekly_loss_limit_pct: 0.40  # 40% → ~$40/week max loss
+  vol_spike_5min_threshold: 0.02
+  vol_spike_5min_pause_minutes: 60
+  vol_spike_30min_threshold: 0.05
+  vol_spike_30min_pause_hours: 24
+  starting_bankroll_usd: 100.0  # set to your actual Kalshi funding amount
+
+kalshi:
+  api_base_url: "https://api.elections.kalshi.com/trade-api/v2"
+  ws_url: "wss://api.elections.kalshi.com/trade-api/ws/v2"
+  market_series_ticker: "KXBTCD"
+  poll_interval_seconds: 5
+
+coinbase:
+  ws_url: "wss://advanced-trade-ws.coinbase.com"
+  product_id: "BTC-USD"
+  reconnect_backoff_initial: 1.0
+  reconnect_backoff_max: 60.0
+
+finnhub:
+  base_url: "https://finnhub.io/api/v1"
+  refresh_time_et: "00:05"
+
+alerts:
+  telegram_bot_token: null  # set TELEGRAM_BOT_TOKEN in .env
+  telegram_chat_id: null    # set TELEGRAM_CHAT_ID in .env
+  alert_on_fill: true
+  alert_on_circuit_breaker: true
+  alert_on_loss_limit: true
+  alert_on_error: true
+
+logging:
+  level: INFO
+  log_file: "logs/b97_micro_live.log"
+  rotate_daily: true

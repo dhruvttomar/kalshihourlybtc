@@ -51,6 +51,7 @@ class OrderExecutor:
         kalshi: KalshiClient,
         tracker: PositionTracker,
         now_et: datetime,
+        capacity_usd: float = 1000.0,
     ) -> Line:
         """
         Deploy capital for one line, respecting the liquidity cap.
@@ -66,7 +67,7 @@ class OrderExecutor:
         assert decision.side is not None
         assert decision.target_price_cents is not None
 
-        line = Line(strike=decision.floor_strike, side=decision.side)
+        line = Line(strike=decision.floor_strike, side=decision.side, capacity_usd=capacity_usd)
         line_id = tracker.open_new_line(
             now_et=now_et,
             market_ticker=decision.market_ticker,
@@ -151,9 +152,9 @@ class OrderExecutor:
 
                     log.info(
                         "Line %s: filled %d contracts @ %dc = $%.2f "
-                        "(cumulative=$%.2f / $1000)",
+                        "(cumulative=$%.2f / $%.0f)",
                         line_id, filled_qty, price_cents,
-                        fill_notional, line.cumulative_filled,
+                        fill_notional, line.cumulative_filled, line.capacity_usd,
                     )
                 else:
                     log.warning("Line %s: fill timeout for order %s", line_id, order_id)

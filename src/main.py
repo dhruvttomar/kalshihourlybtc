@@ -221,6 +221,7 @@ async def _trading_loop(
                         kalshi=kalshi,
                         tracker=tracker,
                         now_et=now_et,
+                        capacity_usd=config.strategy.max_capital_per_line_usd,
                     )
                     if line.fills:
                         await alerts.notify_fill(line, decision)

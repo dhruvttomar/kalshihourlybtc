@@ -88,15 +88,16 @@ class Fill:
 class Line:
     strike: float
     side: str      # "yes" | "no"
+    capacity_usd: float = 1000.0
     cumulative_filled: float = 0.0
     fills: list[Fill] = field(default_factory=list)
 
     def is_complete(self) -> bool:
-        return self.cumulative_filled >= 1000.0
+        return self.cumulative_filled >= self.capacity_usd
 
     @property
     def remaining_capacity(self) -> float:
-        return max(0.0, 1000.0 - self.cumulative_filled)
+        return max(0.0, self.capacity_usd - self.cumulative_filled)
 
 
 # ── Entry decision ────────────────────────────────────────────────────────────
