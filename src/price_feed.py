@@ -140,6 +140,10 @@ class PriceFeed:
     async def _ws_loop(self) -> None:
         # Kraken WS v1: subscribe to ticker, parse last-trade price from "c" field.
         # Message format: [channelID, {"c": ["price", "qty"], ...}, "ticker", "XBT/USD"]
+        import logging
+        _log = logging.getLogger(__name__)
+        _TICKER_TIMEOUT_S = 60  # force reconnect if no ticker arrives within 60s
+
         subscribe_msg = json.dumps({
             "event": "subscribe",
             "pair": ["XBT/USD"],
@@ -148,7 +152,13 @@ class PriceFeed:
         async with websockets.connect(self._ws_url, ping_interval=20, ping_timeout=30) as ws:
             await ws.send(subscribe_msg)
             last_persist = time.time()
-            async for raw in ws:
+            while True:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=_TICKER_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    raise RuntimeError(
+                        f"No Kraken ticker message in {_TICKER_TIMEOUT_S}s — reconnecting"
+                    )
                 msg = json.loads(raw)
                 if not isinstance(msg, list) or len(msg) != 4 or msg[2] != "ticker":
                     continue
