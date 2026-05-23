@@ -13,7 +13,12 @@ DEPLOY_KEY="/root/.ssh/github_deploy"
 
 echo "=== [1/6] Installing Docker and git ==="
 apt-get update -qq
-apt-get install -y -qq docker.io docker-compose-plugin git curl
+apt-get install -y -qq git curl
+# Use Docker's official install script — works on all Ubuntu versions
+if ! command -v docker &>/dev/null; then
+  curl -fsSL https://get.docker.com | sh
+fi
+apt-get install -y -qq docker-compose-plugin 2>/dev/null || true
 systemctl enable --now docker
 echo "Docker $(docker --version)"
 
