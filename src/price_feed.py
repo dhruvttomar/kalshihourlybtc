@@ -1,9 +1,9 @@
 """
-Coinbase Advanced Trade WebSocket price feed for BTC-USD.
+BTC-USD price feed using Kraken REST polling.
 
-Maintains a rolling buffer of 1-minute closes. Bootstraps from Binance REST
-on startup, then keeps state via WebSocket ticks. Reconnects with exponential
-backoff. Persists state to disk every minute for crash recovery.
+Polls Kraken spot price every 10 seconds. Bootstraps 1-minute OHLC history
+from Kraken on startup. No WebSocket — REST is simpler and reliable enough
+for a 15-second trading loop.
 """
 from __future__ import annotations
 
@@ -18,69 +18,48 @@ from pathlib import Path
 
 import numpy as np
 import requests
-import websockets
-import websockets.exceptions
 
 from src.vol_calculator import realized_vol_annualized
 
-# Kraken WebSocket — public, no auth, no geo-restrictions from US servers
-_KRAKEN_WS_URL = "wss://ws.kraken.com"
 _KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC"
-_COINBASE_REST_URL = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 _KRAKEN_SPOT_URL = "https://api.kraken.com/0/public/Ticker"
+_COINBASE_REST_URL = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 
 _MINUTES_PER_YEAR = 525_600
-_BUFFER_MINUTES = 10_080  # 7 days of 1-min data for rv_baseline_7d_median
+_BUFFER_MINUTES = 10_080   # 7 days of 1-min data
 _1H_MINUTES = 60
 _24H_MINUTES = 1_440
-_STATE_STALE_SECONDS = 30
+_STATE_STALE_SECONDS = 45  # stale if no successful poll in 45s
+_POLL_INTERVAL_S = 10      # fetch spot price every 10 seconds
 
 
 @dataclass
 class PriceState:
     spot: float
     timestamp: datetime
-    rv_60_annualized: float          # trailing 60-min realized vol, annualized
-    rv_24h_annualized: float         # trailing 24h realized vol, annualized
-    rv_baseline_7d_median: float     # median of daily rv over last 7 days
-    is_stale: bool                   # True if last tick > 30s ago
+    rv_60_annualized: float
+    rv_24h_annualized: float
+    rv_baseline_7d_median: float
+    is_stale: bool
 
 
 class PriceFeed:
     """
-    Async Coinbase BTC-USD price feed.
+    BTC-USD price feed backed by Kraken REST polling.
 
     Usage:
-        feed = PriceFeed(state_file="data/price_state.json")
+        feed = PriceFeed()
         asyncio.create_task(feed.run())
         state = await feed.get_current_state()
     """
 
-    def __init__(
-        self,
-        config=None,
-        state_file: str = "data/price_state.json",
-    ):
-        # Accept either a CoinbaseConfig object or fall back to defaults
-        if config is not None and hasattr(config, "ws_url"):
-            self._ws_url = config.ws_url if "kraken" in config.ws_url else _KRAKEN_WS_URL
-            self._product_id = getattr(config, "product_id", "BTC-USD")
-            self._backoff_initial = getattr(config, "reconnect_backoff_initial", 1.0)
-            self._backoff_max = getattr(config, "reconnect_backoff_max", 60.0)
-        else:
-            self._ws_url = _KRAKEN_WS_URL
-            self._product_id = "BTC-USD"
-            self._backoff_initial = 1.0
-            self._backoff_max = 60.0
+    def __init__(self, config=None, state_file: str = "data/price_state.json"):
         self._state_file = Path(state_file)
-
-        # Deque of (unix_ts_float, close_price_float), oldest first
         self._deque: deque[tuple[float, float]] = deque(maxlen=_BUFFER_MINUTES)
         self._lock = asyncio.Lock()
-
         self._last_tick_ts: float = 0.0
         self._last_tick_price: float = 0.0
-        self._current_minute: int = 0  # unix minute bucket currently accumulating
+        self._current_minute: int = 0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -93,9 +72,9 @@ class PriceFeed:
         spot = last_tick_price if last_tick_price else (data[-1][1] if data else float("nan"))
         is_stale = (time.time() - last_tick_ts) > _STATE_STALE_SECONDS if last_tick_ts else True
 
-        prices_all = [p for _, p in data]
-        prices_60 = [p for ts, p in data if ts >= time.time() - _1H_MINUTES * 60]
-        prices_24h = [p for ts, p in data if ts >= time.time() - _24H_MINUTES * 60]
+        now = time.time()
+        prices_60 = [p for ts, p in data if ts >= now - _1H_MINUTES * 60]
+        prices_24h = [p for ts, p in data if ts >= now - _24H_MINUTES * 60]
 
         rv_60 = realized_vol_annualized(prices_60) if len(prices_60) >= 2 else float("nan")
         rv_24h = realized_vol_annualized(prices_24h) if len(prices_24h) >= 2 else float("nan")
@@ -103,7 +82,7 @@ class PriceFeed:
 
         return PriceState(
             spot=spot,
-            timestamp=datetime.fromtimestamp(last_tick_ts or time.time(), tz=timezone.utc),
+            timestamp=datetime.fromtimestamp(last_tick_ts or now, tz=timezone.utc),
             rv_60_annualized=rv_60,
             rv_24h_annualized=rv_24h,
             rv_baseline_7d_median=rv_baseline,
@@ -111,83 +90,66 @@ class PriceFeed:
         )
 
     def get_recent_prices(self, n: int) -> list[float]:
-        """Return up to the last n 1-minute close prices (chronological order)."""
         data = list(self._deque)
         prices = [p for _, p in data]
         return prices[-n:] if len(prices) >= n else prices
 
     async def run(self) -> None:
-        """Main loop — bootstraps then maintains WebSocket connection forever."""
+        """Main loop: bootstrap history, then poll spot price every 10 seconds."""
+        import logging
+        _log = logging.getLogger(__name__)
+
         self._load_persisted_state()
         if len(self._deque) < _24H_MINUTES:
-            await asyncio.get_event_loop().run_in_executor(None, self._bootstrap_from_binance)
+            await asyncio.get_event_loop().run_in_executor(None, self._bootstrap_ohlc)
 
-        import logging
-        _log = logging.getLogger(__name__)
-        _log.info("price_feed connecting to %s", self._ws_url)
-        backoff = self._backoff_initial
+        _log.info("price_feed polling Kraken REST every %ds", _POLL_INTERVAL_S)
+        last_persist = time.time()
+
         while True:
             try:
-                await self._ws_loop()
-                backoff = self._backoff_initial  # reset on clean disconnect
-            except Exception as exc:
-                _log.warning("price_feed ws error (retry in %.0fs): %s", backoff, exc)
-            await asyncio.sleep(min(backoff, self._backoff_max))
-            backoff = min(backoff * 2, self._backoff_max)
-
-    # ── WebSocket loop ────────────────────────────────────────────────────────
-
-    async def _ws_loop(self) -> None:
-        # Kraken WS v1: subscribe to ticker, parse last-trade price from "c" field.
-        # Message format: [channelID, {"c": ["price", "qty"], ...}, "ticker", "XBT/USD"]
-        import logging
-        _log = logging.getLogger(__name__)
-        _TICKER_TIMEOUT_S = 60  # force reconnect if no ticker arrives within 60s
-
-        subscribe_msg = json.dumps({
-            "event": "subscribe",
-            "pair": ["XBT/USD"],
-            "subscription": {"name": "ticker"},
-        })
-        async with websockets.connect(self._ws_url, ping_interval=20, ping_timeout=30) as ws:
-            await ws.send(subscribe_msg)
-            last_persist = time.time()
-            while True:
-                try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=_TICKER_TIMEOUT_S)
-                except asyncio.TimeoutError:
-                    raise RuntimeError(
-                        f"No Kraken ticker message in {_TICKER_TIMEOUT_S}s — reconnecting"
-                    )
-                msg = json.loads(raw)
-                if not isinstance(msg, list) or len(msg) != 4 or msg[2] != "ticker":
-                    continue
-                price_str = msg[1].get("c", [None])[0]
-                if not price_str:
-                    continue
-                price = float(price_str)
+                spot = await asyncio.get_event_loop().run_in_executor(
+                    None, self._fetch_spot
+                )
                 now_ts = time.time()
-                self._last_tick_ts = now_ts
-                self._last_tick_price = price
-                await self._record_tick(now_ts, price)
+                async with self._lock:
+                    self._last_tick_ts = now_ts
+                    self._last_tick_price = spot
+                    minute_bucket = int(now_ts // 60)
+                    if minute_bucket != self._current_minute:
+                        if self._current_minute > 0:
+                            self._deque.append((self._current_minute * 60.0, spot))
+                        self._current_minute = minute_bucket
 
                 if now_ts - last_persist >= 60:
                     self._persist_state()
                     last_persist = now_ts
 
-    async def _record_tick(self, ts: float, price: float) -> None:
-        minute_bucket = int(ts // 60)
-        async with self._lock:
-            if minute_bucket != self._current_minute:
-                # Flush the completed minute: record last seen price as the close
-                if self._current_minute > 0 and self._last_tick_price:
-                    self._deque.append((self._current_minute * 60.0, self._last_tick_price))
-                self._current_minute = minute_bucket
+            except Exception as exc:
+                _log.warning("price_feed poll error: %s", exc)
 
-    # ── Bootstrap ─────────────────────────────────────────────────────────────
+            await asyncio.sleep(_POLL_INTERVAL_S)
 
-    def _bootstrap_from_binance(self) -> None:
-        """Pre-fill deque with historical 1-min closes from Kraken OHLC."""
+    # ── REST helpers ──────────────────────────────────────────────────────────
+
+    def _fetch_spot(self) -> float:
+        """Fetch current BTC/USD spot from Kraken, fallback to Coinbase."""
+        try:
+            r = requests.get(_KRAKEN_SPOT_URL, params={"pair": "XBTUSD"}, timeout=8)
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("error"):
+                ticker = next(iter(data["result"].values()))
+                return float(ticker["c"][0])
+        except Exception:
+            pass
+        # Fallback: Coinbase public REST
+        r = requests.get(_COINBASE_REST_URL, timeout=8)
+        r.raise_for_status()
+        return float(r.json()["data"]["amount"])
+
+    def _bootstrap_ohlc(self) -> None:
+        """Pre-fill deque with Kraken 1-min OHLC history (up to 7 days)."""
         import logging
         _log = logging.getLogger(__name__)
         try:
@@ -203,23 +165,20 @@ class PriceFeed:
                 _log.info("price_feed bootstrapped %d candles from Kraken", len(closes))
                 return
         except Exception as exc:
-            _log.warning("Kraken OHLC bootstrap failed: %s — falling back to spot", exc)
+            _log.warning("OHLC bootstrap failed: %s — will build history via polling", exc)
 
-        # Fallback: single spot price
+        # No history: seed with a single spot price so is_stale clears immediately
         try:
-            spot = self._fetch_coinbase_spot()
-        except Exception:
-            try:
-                spot = self._fetch_kraken_spot()
-            except Exception:
-                return
-        now = time.time()
-        self._deque.append((now, spot))
-        self._last_tick_price = spot
-        self._last_tick_ts = now
+            spot = self._fetch_spot()
+            now = time.time()
+            self._deque.append((now, spot))
+            self._last_tick_price = spot
+            self._last_tick_ts = now
+            _log.info("price_feed seeded with spot price %.2f", spot)
+        except Exception as exc:
+            _log.warning("Spot seed also failed: %s", exc)
 
     def _fetch_kraken_ohlc(self, n: int) -> list[float]:
-        """Fetch up to n 1-min closes from Kraken, oldest first."""
         closes: list[float] = []
         since = int(time.time()) - n * 60
         while len(closes) < n:
@@ -236,24 +195,12 @@ class PriceFeed:
             candles = result.get("XXBTZUSD") or result.get("XBTUSD") or []
             if not candles:
                 break
-            closes.extend(float(c[4]) for c in candles)  # index 4 = close
+            closes.extend(float(c[4]) for c in candles)
             last_ts = int(data["result"].get("last", 0))
             if not last_ts or len(candles) < 720:
                 break
             since = last_ts
         return closes[-n:]
-
-    def _fetch_coinbase_spot(self) -> float:
-        r = requests.get(_COINBASE_REST_URL, timeout=6)
-        r.raise_for_status()
-        return float(r.json()["data"]["amount"])
-
-    def _fetch_kraken_spot(self) -> float:
-        r = requests.get(_KRAKEN_SPOT_URL, params={"pair": "XBTUSD"}, timeout=6)
-        r.raise_for_status()
-        data = r.json()["result"]
-        ticker = next(iter(data.values()))
-        return float(ticker["c"][0])
 
     # ── State persistence ─────────────────────────────────────────────────────
 
@@ -263,7 +210,7 @@ class PriceFeed:
             snapshot = {
                 "ts": time.time(),
                 "last_price": self._last_tick_price,
-                "deque": list(self._deque)[-_24H_MINUTES:],  # persist last 24h only
+                "deque": list(self._deque)[-_24H_MINUTES:],
             }
             tmp = self._state_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(snapshot))
@@ -277,7 +224,7 @@ class PriceFeed:
                 return
             raw = json.loads(self._state_file.read_text())
             saved_ts = float(raw.get("ts", 0))
-            if time.time() - saved_ts > 300:  # stale if > 5 min old
+            if time.time() - saved_ts > 300:
                 return
             for entry in raw.get("deque", []):
                 self._deque.append((float(entry[0]), float(entry[1])))
@@ -289,23 +236,15 @@ class PriceFeed:
     # ── Vol helpers ───────────────────────────────────────────────────────────
 
     def _compute_7d_median(self, data: list[tuple[float, float]]) -> float:
-        """
-        Median of non-overlapping 24h realized vols over the last 7 days.
-        Requires at least 2 complete 24h windows (48h of data).
-        Returns nan if insufficient data.
-        """
         if not data:
             return float("nan")
         now = time.time()
-        seven_days_ago = now - 7 * 24 * 3600
-        window = [(ts, p) for ts, p in data if ts >= seven_days_ago]
+        window = [(ts, p) for ts, p in data if ts >= now - 7 * 24 * 3600]
         if len(window) < _24H_MINUTES * 2:
             return float("nan")
 
         bin_vols: list[float] = []
         bin_size_s = _24H_MINUTES * 60.0
-        if not window:
-            return float("nan")
         bin_start = window[0][0]
         bin_prices: list[float] = []
 
@@ -328,37 +267,3 @@ class PriceFeed:
         if len(bin_vols) < 2:
             return float("nan")
         return float(np.median(bin_vols))
-
-
-# ── CLI smoke test ─────────────────────────────────────────────────────────────
-
-async def _smoke_test() -> None:
-    import signal
-
-    feed = PriceFeed()
-    task = asyncio.create_task(feed.run())
-
-    def _stop(*_: object) -> None:
-        task.cancel()
-
-    loop = asyncio.get_running_loop()
-    loop.add_signal_handler(signal.SIGINT, _stop)
-    loop.add_signal_handler(signal.SIGTERM, _stop)
-
-    try:
-        for _ in range(4):
-            await asyncio.sleep(30)
-            state = await feed.get_current_state()
-            print(
-                f"spot={state.spot:.2f} "
-                f"rv_60={state.rv_60_annualized:.4f} "
-                f"rv_24h={state.rv_24h_annualized:.4f} "
-                f"rv_7d_med={state.rv_baseline_7d_median:.4f} "
-                f"stale={state.is_stale}"
-            )
-    except asyncio.CancelledError:
-        pass
-
-
-if __name__ == "__main__":
-    asyncio.run(_smoke_test())
