@@ -13,8 +13,9 @@ services:
       - /opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem:/opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem:ro
     environment:
       - KALSHI_KEY_PATH=/opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem
+      - PYTHONUNBUFFERED=1
     command: >
-      python -m src.main --live --config config/b97_micro_live.yaml
+      python -u -m src.main --live --config config/b97_micro_live.yaml
     logging:
       driver: "json-file"
       options:
