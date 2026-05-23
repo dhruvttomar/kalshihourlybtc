@@ -68,7 +68,8 @@ class FinnhubConfig(BaseModel):
 class AlertsConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    discord_webhook_url: Optional[str] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
     alert_on_fill: bool = True
     alert_on_circuit_breaker: bool = True
     alert_on_loss_limit: bool = True
@@ -96,10 +97,25 @@ class AppConfig(BaseModel):
 
 
 def load_config(path: str) -> AppConfig:
-    """Load and validate config from a YAML file. Returns a frozen AppConfig."""
+    """Load and validate config from a YAML file. Returns a frozen AppConfig.
+
+    Environment variables override specific YAML values:
+      DISCORD_WEBHOOK_URL  → alerts.discord_webhook_url
+    """
+    import os
+
     config_path = Path(path)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with config_path.open() as f:
-        raw = yaml.safe_load(f)
-    return AppConfig.model_validate(raw or {})
+        raw = yaml.safe_load(f) or {}
+
+    # Allow secrets to live in .env rather than in the committed YAML
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    tg_chat = os.environ.get("TELEGRAM_CHAT_ID")
+    if tg_token:
+        raw.setdefault("alerts", {})["telegram_bot_token"] = tg_token
+    if tg_chat:
+        raw.setdefault("alerts", {})["telegram_chat_id"] = tg_chat
+
+    return AppConfig.model_validate(raw)

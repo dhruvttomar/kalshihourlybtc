@@ -18,7 +18,7 @@ _DEFAULT_BASE = "https://finnhub.io/api/v1"
 
 class FinnhubClient:
     def __init__(self, api_key: str | None = None, base_url: str = _DEFAULT_BASE):
-        self._api_key = api_key or os.getenv("FINNHUB_API_KEY", "")
+        self._api_key = api_key or os.getenv("FINNHUB_KEY", "")
         self._base_url = base_url.rstrip("/")
 
     async def fetch_upcoming_events(self, days_ahead: int = 7) -> list[EconEvent]:

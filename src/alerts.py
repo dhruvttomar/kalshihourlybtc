@@ -1,9 +1,16 @@
 """
-Alerts: Discord webhook notifications for fills, circuit breakers, and errors.
+Alerts: Telegram Bot notifications for fills, circuit breakers, and errors.
 
-If `discord_webhook_url` is not configured, all alert methods are no-ops that
-log at INFO level instead. The aiohttp session is injected so the caller can
-share the same session used by KalshiClient.
+Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env.
+If either is missing, all alert methods are no-ops that log at INFO level instead.
+The aiohttp session is injected so the caller can share the session used by KalshiClient.
+
+Setup:
+  1. Message @BotFather on Telegram → /newbot → copy the token
+  2. Add the bot to your channel/group, or start a DM with it
+  3. Get the chat ID: message the bot, then visit
+     https://api.telegram.org/bot<TOKEN>/getUpdates
+     and copy "chat" → "id" from the response
 """
 from __future__ import annotations
 
@@ -16,22 +23,26 @@ from src.models import EntryDecision, Line
 
 log = logging.getLogger(__name__)
 
-_DISCORD_COLOR_GREEN = 3066993
-_DISCORD_COLOR_RED = 15158332
-_DISCORD_COLOR_YELLOW = 16776960
-_DISCORD_COLOR_GREY = 9807270
+_TG_API = "https://api.telegram.org/bot{token}/sendMessage"
+
+# Telegram emoji markers for each alert type
+_EMOJI_GREEN = "✅"   # ✅
+_EMOJI_RED = "⚠️"  # ⚠️
+_EMOJI_YELLOW = "\U0001f7e1"  # 🟡
+_EMOJI_BLUE = "\U0001f4ca"   # 📊
 
 
 class Alerts:
     """
-    Sends structured Discord embed notifications.
+    Sends Telegram Bot notifications.
 
-    All methods are safe to call when no webhook is configured — they
+    All methods are safe to call when credentials are not configured — they
     fall back to structured log entries.
     """
 
     def __init__(self, config: AlertsConfig, session: Any | None = None) -> None:
-        self._webhook_url = config.discord_webhook_url
+        self._bot_token = config.telegram_bot_token
+        self._chat_id = config.telegram_chat_id
         self._session = session
         self._alert_on_fill = config.alert_on_fill
         self._alert_on_circuit_breaker = config.alert_on_circuit_breaker
@@ -43,22 +54,18 @@ class Alerts:
     # ── Public notification methods ───────────────────────────────────────────
 
     async def notify_fill(self, line: Line, decision: EntryDecision) -> None:
-        """Post a fill notification when a line is executed."""
         if not self._alert_on_fill:
             return
         ticker = decision.market_ticker or "?"
         side = (decision.side or "?").upper()
         price_cents = decision.target_price_cents or 0
-        msg = (
-            f"**Fill** `{ticker}` {side} @ {price_cents}¢ — "
+        text = (
+            f"{_EMOJI_GREEN} *Line Executed*\n"
+            f"`{ticker}` {side} @ {price_cents}¢\n"
             f"${line.cumulative_filled:.2f} deployed across {len(line.fills)} order(s)"
         )
-        log.info("FILL: %s", msg)
-        await self._post_embed(
-            title="Line Executed",
-            description=msg,
-            color=_DISCORD_COLOR_GREEN,
-        )
+        log.info("FILL: %s", text)
+        await self._send(text)
 
     async def notify_circuit_breaker(
         self,
@@ -66,27 +73,24 @@ class Alerts:
         reason: str,
         pause_until: datetime,
     ) -> None:
-        """Post a circuit breaker activation alert."""
         if not self._alert_on_circuit_breaker:
             return
-        msg = f"**{event_type}**: {reason}\nPaused until `{pause_until.isoformat()}`"
-        log.warning("CIRCUIT BREAKER: %s", msg)
-        await self._post_embed(
-            title="Circuit Breaker Triggered",
-            description=msg,
-            color=_DISCORD_COLOR_YELLOW,
+        text = (
+            f"{_EMOJI_YELLOW} *Circuit Breaker Triggered*\n"
+            f"*{event_type}*: {reason}\n"
+            f"Paused until `{pause_until.isoformat()}`"
         )
+        log.warning("CIRCUIT BREAKER: %s", text)
+        await self._send(text)
 
     async def notify_error(self, exc: Exception, context: str = "") -> None:
-        """Post an error notification for unhandled exceptions in the main loop."""
         ctx = f" ({context})" if context else ""
-        msg = f"**{type(exc).__name__}**{ctx}: {exc}"
-        log.error("ERROR ALERT: %s", msg)
-        await self._post_embed(
-            title="Bot Error",
-            description=msg,
-            color=_DISCORD_COLOR_RED,
+        text = (
+            f"{_EMOJI_RED} *Bot Error*\n"
+            f"*{type(exc).__name__}*{ctx}: {exc}"
         )
+        log.error("ERROR ALERT: %s", text)
+        await self._send(text)
 
     async def notify_daily_summary(
         self,
@@ -95,44 +99,32 @@ class Alerts:
         blackout_count: int,
         circuit_breaker_count: int,
     ) -> None:
-        """Post the nightly summary report (called at midnight ET)."""
         sign = "+" if daily_pnl >= 0 else ""
-        msg = (
-            f"Trades: **{trades}** | P&L: **{sign}${daily_pnl:.2f}** | "
+        text = (
+            f"{_EMOJI_BLUE} *Daily Summary*\n"
+            f"Trades: *{trades}* | P&L: *{sign}${daily_pnl:.2f}*\n"
             f"Blackouts skipped: {blackout_count} | CB events: {circuit_breaker_count}"
         )
-        log.info("DAILY SUMMARY: %s", msg)
-        await self._post_embed(
-            title="Daily Summary",
-            description=msg,
-            color=_DISCORD_COLOR_GREEN if daily_pnl >= 0 else _DISCORD_COLOR_RED,
-        )
+        log.info("DAILY SUMMARY: %s", text)
+        await self._send(text)
 
-    # ── Discord HTTP ──────────────────────────────────────────────────────────
+    # ── Telegram HTTP ─────────────────────────────────────────────────────────
 
-    async def _post_embed(
-        self,
-        title: str,
-        description: str,
-        color: int = _DISCORD_COLOR_GREY,
-    ) -> None:
-        if not self._webhook_url or not self._session:
+    async def _send(self, text: str) -> None:
+        if not self._bot_token or not self._chat_id or not self._session:
             return
+        url = _TG_API.format(token=self._bot_token)
         payload = {
-            "embeds": [
-                {
-                    "title": title,
-                    "description": description,
-                    "color": color,
-                }
-            ]
+            "chat_id": self._chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
         }
         try:
-            async with self._session.post(self._webhook_url, json=payload) as resp:
-                if resp.status not in (200, 204):
+            async with self._session.post(url, json=payload) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
                     log.warning(
-                        "Discord webhook returned %d for alert '%s'",
-                        resp.status, title,
+                        "Telegram API returned %d: %s", resp.status, body[:200]
                     )
         except Exception as exc:
-            log.warning("Failed to send Discord alert '%s': %s", title, exc)
+            log.warning("Failed to send Telegram alert: %s", exc)

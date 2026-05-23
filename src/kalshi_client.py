@@ -86,14 +86,11 @@ class KalshiClient:
             priv = serialization.load_pem_private_key(fh.read(), password=None)
 
         msg = (ts_ms + method.upper() + path).encode()
-        # Demo API uses PSS; prod API uses PKCS1v15
-        if "demo-api.kalshi.co" in self._config.api_base_url:
-            pad: Any = padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH,
-            )
-        else:
-            pad = padding.PKCS1v15()
+        # Both prod and demo APIs now use RSA-PSS (confirmed 2026-05-21)
+        pad: Any = padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH,
+        )
 
         sig = base64.b64encode(priv.sign(msg, pad, hashes.SHA256())).decode()
         return {

@@ -43,7 +43,8 @@ finnhub:
   refresh_time_et: "00:05"  # daily refresh at 12:05 AM ET
 
 alerts:
-  discord_webhook_url: null  # set DISCORD_WEBHOOK_URL in .env
+  telegram_bot_token: null  # set TELEGRAM_BOT_TOKEN in .env
+  telegram_chat_id: null    # set TELEGRAM_CHAT_ID in .env
   alert_on_fill: true
   alert_on_circuit_breaker: true
   alert_on_loss_limit: true
