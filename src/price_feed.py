@@ -58,16 +58,20 @@ class PriceFeed:
 
     def __init__(
         self,
-        ws_url: str = _BINANCE_WS_URL,
-        product_id: str = "BTC-USD",
-        reconnect_backoff_initial: float = 1.0,
-        reconnect_backoff_max: float = 60.0,
+        config=None,
         state_file: str = "data/price_state.json",
     ):
-        self._ws_url = ws_url
-        self._product_id = product_id
-        self._backoff_initial = reconnect_backoff_initial
-        self._backoff_max = reconnect_backoff_max
+        # Accept either a CoinbaseConfig object or fall back to defaults
+        if config is not None and hasattr(config, "ws_url"):
+            self._ws_url = config.ws_url
+            self._product_id = getattr(config, "product_id", "BTC-USD")
+            self._backoff_initial = getattr(config, "reconnect_backoff_initial", 1.0)
+            self._backoff_max = getattr(config, "reconnect_backoff_max", 60.0)
+        else:
+            self._ws_url = _BINANCE_WS_URL
+            self._product_id = "BTC-USD"
+            self._backoff_initial = 1.0
+            self._backoff_max = 60.0
         self._state_file = Path(state_file)
 
         # Deque of (unix_ts_float, close_price_float), oldest first
@@ -118,13 +122,16 @@ class PriceFeed:
         if len(self._deque) < _24H_MINUTES:
             await asyncio.get_event_loop().run_in_executor(None, self._bootstrap_from_binance)
 
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.info("price_feed connecting to %s", self._ws_url)
         backoff = self._backoff_initial
         while True:
             try:
                 await self._ws_loop()
                 backoff = self._backoff_initial  # reset on clean disconnect
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("price_feed ws error (retry in %.0fs): %s", backoff, exc)
             await asyncio.sleep(min(backoff, self._backoff_max))
             backoff = min(backoff * 2, self._backoff_max)
 
