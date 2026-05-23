@@ -46,7 +46,7 @@ kalshi:
   poll_interval_seconds: 5
 
 coinbase:
-  ws_url: "wss://advanced-trade-ws.coinbase.com"
+  ws_url: "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
   product_id: "BTC-USD"
   reconnect_backoff_initial: 1.0
   reconnect_backoff_max: 60.0

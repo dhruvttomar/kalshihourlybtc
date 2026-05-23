@@ -23,8 +23,9 @@ import websockets.exceptions
 
 from src.vol_calculator import realized_vol_annualized
 
-_COINBASE_WS_URL = "wss://advanced-trade-ws.coinbase.com"
-_BINANCE_KLINES_URL = "https://api.binance.us/api/v3/klines"
+# Binance global WebSocket (public, no auth, works worldwide)
+_BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
+_BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 _COINBASE_REST_URL = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 _KRAKEN_URL = "https://api.kraken.com/0/public/Ticker"
 
@@ -57,7 +58,7 @@ class PriceFeed:
 
     def __init__(
         self,
-        ws_url: str = _COINBASE_WS_URL,
+        ws_url: str = _BINANCE_WS_URL,
         product_id: str = "BTC-USD",
         reconnect_backoff_initial: float = 1.0,
         reconnect_backoff_max: float = 60.0,
@@ -130,33 +131,25 @@ class PriceFeed:
     # ── WebSocket loop ────────────────────────────────────────────────────────
 
     async def _ws_loop(self) -> None:
-        subscribe_msg = json.dumps({
-            "type": "subscribe",
-            "product_ids": [self._product_id],
-            "channel": "ticker",
-        })
-
+        # Binance aggTrade stream: connect directly to the stream URL, no
+        # subscription message needed. Each message is a single trade with
+        # field "p" (price as string) and "T" (trade time ms).
         async with websockets.connect(self._ws_url, ping_interval=20, ping_timeout=30) as ws:
-            await ws.send(subscribe_msg)
             last_persist = time.time()
             async for raw in ws:
                 msg = json.loads(raw)
-                if msg.get("channel") != "ticker":
+                price_str = msg.get("p")
+                if not price_str:
                     continue
-                for event in msg.get("events", []):
-                    for tick in event.get("tickers", []):
-                        price_str = tick.get("price")
-                        if not price_str:
-                            continue
-                        price = float(price_str)
-                        now_ts = time.time()
-                        self._last_tick_ts = now_ts
-                        self._last_tick_price = price
-                        await self._record_tick(now_ts, price)
+                price = float(price_str)
+                now_ts = time.time()
+                self._last_tick_ts = now_ts
+                self._last_tick_price = price
+                await self._record_tick(now_ts, price)
 
-                        if now_ts - last_persist >= 60:
-                            self._persist_state()
-                            last_persist = now_ts
+                if now_ts - last_persist >= 60:
+                    self._persist_state()
+                    last_persist = now_ts
 
     async def _record_tick(self, ts: float, price: float) -> None:
         minute_bucket = int(ts // 60)
