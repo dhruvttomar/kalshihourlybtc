@@ -12,7 +12,8 @@ BOT_DIR="/opt/kalshibot/kalshi_btc_bot"
 DEPLOY_KEY="/root/.ssh/github_deploy"
 
 echo "=== [1/6] Installing Docker and git ==="
-apt-get update -qq
+apt-get update -qq || true
+apt --fix-broken install -y -qq || true
 apt-get install -y -qq git curl
 # Use Docker's official install script — works on all Ubuntu versions
 if ! command -v docker &>/dev/null; then
