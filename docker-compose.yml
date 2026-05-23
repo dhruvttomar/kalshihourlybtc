@@ -2,13 +2,17 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: true
     volumes:
       # Persist DB and logs across container restarts/deploys
       - ./data:/app/data
       - ./logs:/app/logs
-      # Mount private key from host path set in .env (KALSHI_KEY_PATH)
-      - ${KALSHI_KEY_PATH}:${KALSHI_KEY_PATH}:ro
+      # Mount private key — path must match KALSHI_KEY_PATH in .env
+      - /opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem:/opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem:ro
+    environment:
+      - KALSHI_KEY_PATH=/opt/kalshibot/kalshi_btc_bot/keys/kalshi.pem
     command: >
       python -m src.main --live --config config/b97_micro_live.yaml
     logging:
