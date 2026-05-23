@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     env_file:
-      - path: .env
+      - path: /opt/kalshibot/kalshi_btc_bot/.env
         required: true
     volumes:
       # Persist DB and logs across container restarts/deploys
