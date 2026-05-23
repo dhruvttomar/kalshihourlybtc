@@ -217,6 +217,21 @@ class KalshiClient:
         log.debug("Fetched %d active %s markets", len(markets), series)
         return markets
 
+    async def get_market(self, ticker: str) -> dict:
+        """
+        Fetch a single market by ticker.
+
+        Returns the raw market dict. Key fields after settlement:
+          result: "yes" | "no" | None
+          status: "settled" | "open" | "closed"
+        """
+        try:
+            data = await self._get(f"/markets/{ticker}")
+            return data.get("market", {})
+        except Exception as exc:
+            log.warning("get_market(%s) failed: %s", ticker, exc)
+            return {}
+
     async def get_orderbook(self, ticker: str) -> dict:
         """
         Fetch orderbook for a market.

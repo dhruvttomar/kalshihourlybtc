@@ -68,11 +68,16 @@ class OrderExecutor:
         assert decision.target_price_cents is not None
 
         line = Line(strike=decision.floor_strike, side=decision.side, capacity_usd=capacity_usd)
+        close_time_utc = (
+            decision.market_close_time.isoformat()
+            if decision.market_close_time else None
+        )
         line_id = tracker.open_new_line(
             now_et=now_et,
             market_ticker=decision.market_ticker,
             side=decision.side,
             strike_price_cents=int(decision.floor_strike),
+            close_time_utc=close_time_utc,
         )
         price_cents = decision.target_price_cents
 

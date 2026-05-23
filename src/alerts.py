@@ -92,6 +92,22 @@ class Alerts:
         log.error("ERROR ALERT: %s", text)
         await self._send(text)
 
+    async def notify_settlement(
+        self,
+        market_ticker: str,
+        outcome: str,
+        final_pnl_usd: float,
+    ) -> None:
+        emoji = _EMOJI_GREEN if outcome == "win" else _EMOJI_RED
+        sign = "+" if final_pnl_usd >= 0 else ""
+        text = (
+            f"{emoji} *Settlement*\n"
+            f"`{market_ticker}`\n"
+            f"Result: *{outcome.upper()}* | P&L: *{sign}${final_pnl_usd:.2f}*"
+        )
+        log.info("SETTLEMENT: %s", text)
+        await self._send(text)
+
     async def notify_daily_summary(
         self,
         trades: int,

@@ -55,6 +55,7 @@ class PositionTracker:
         market_ticker: str,
         side: str,
         strike_price_cents: int,
+        close_time_utc: str | None = None,
     ) -> str:
         """
         Create a new line record in the DB and return its UUID.
@@ -72,6 +73,7 @@ class PositionTracker:
             "final_pnl_usd": None,
             "settled_at": None,
             "outcome": None,
+            "close_time_utc": close_time_utc,
         })
         return line_id
 

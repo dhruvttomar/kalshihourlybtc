@@ -59,6 +59,11 @@ CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_lines_hour     ON lines(hour_key);
 """
 
+# Safe migrations — run after schema creation so existing DBs are upgraded
+_MIGRATIONS = [
+    "ALTER TABLE lines ADD COLUMN close_time_utc TEXT",
+]
+
 
 class Database:
     def __init__(self, path: str = "data/trades.db"):
@@ -69,6 +74,11 @@ class Database:
     def _init_schema(self) -> None:
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            for migration in _MIGRATIONS:
+                try:
+                    conn.execute(migration)
+                except Exception:
+                    pass  # column already exists — safe to ignore
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -130,13 +140,22 @@ class Database:
         sql = """
         INSERT OR REPLACE INTO lines
             (id, hour_key, market_ticker, side, strike_price,
-             cumulative_filled_usd, final_pnl_usd, settled_at, outcome)
+             cumulative_filled_usd, final_pnl_usd, settled_at, outcome,
+             close_time_utc)
         VALUES
             (:id, :hour_key, :market_ticker, :side, :strike_price,
-             :cumulative_filled_usd, :final_pnl_usd, :settled_at, :outcome)
+             :cumulative_filled_usd, :final_pnl_usd, :settled_at, :outcome,
+             :close_time_utc)
         """
         with self._conn() as conn:
             conn.execute(sql, line)
+
+    def get_orders_for_line(self, line_id: str) -> list[sqlite3.Row]:
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT * FROM orders WHERE line_id = ? ORDER BY created_at",
+                (line_id,),
+            ).fetchall()
 
     def get_lines_this_hour(self, hour_key: str) -> list[sqlite3.Row]:
         with self._conn() as conn:

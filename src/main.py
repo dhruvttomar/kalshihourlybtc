@@ -41,6 +41,7 @@ from src.order_executor import OrderExecutor
 from src.position_tracker import PositionTracker
 from src.price_feed import PriceFeed
 from src.risk_manager import RiskManager
+from src.settlement_monitor import run_settlement_monitor
 
 _ET = ZoneInfo("America/New_York")
 _UTC = timezone.utc
@@ -324,6 +325,16 @@ async def main(config_path: str = "config/default.yaml", live: bool = False) -> 
             asyncio.create_task(
                 _daily_summary(risk, alerts),
                 name="daily_summary",
+            ),
+            asyncio.create_task(
+                run_settlement_monitor(
+                    kalshi=kalshi,
+                    tracker=tracker,
+                    db=db,
+                    alerts=alerts,
+                    shutdown_event=shutdown_event,
+                ),
+                name="settlement_monitor",
             ),
         ]
 
