@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache
 # Copy source
 COPY src/       src/
 COPY config/    config/
+COPY scripts/   scripts/
 
 # Runtime directories (mounted as volumes in production)
 RUN mkdir -p data logs
