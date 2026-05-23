@@ -46,6 +46,8 @@ class Alerts:
         self._session = session
         self._alert_on_fill = config.alert_on_fill
         self._alert_on_circuit_breaker = config.alert_on_circuit_breaker
+        self._alert_on_loss_limit = config.alert_on_loss_limit
+        self._alert_on_error = config.alert_on_error
 
     def set_session(self, session: Any) -> None:
         """Inject an aiohttp.ClientSession after construction (from main loop)."""
@@ -84,6 +86,8 @@ class Alerts:
         await self._send(text)
 
     async def notify_error(self, exc: Exception, context: str = "") -> None:
+        if not self._alert_on_error:
+            return
         ctx = f" ({context})" if context else ""
         text = (
             f"{_EMOJI_RED} *Bot Error*\n"
@@ -106,6 +110,17 @@ class Alerts:
             f"Result: *{outcome.upper()}* | P&L: *{sign}${final_pnl_usd:.2f}*"
         )
         log.info("SETTLEMENT: %s", text)
+        await self._send(text)
+
+    async def notify_loss_limit(self, limit_type: str, pnl: float, limit_usd: float) -> None:
+        if not self._alert_on_loss_limit:
+            return
+        text = (
+            f"{_EMOJI_RED} *Loss Limit Hit*\n"
+            f"*{limit_type}* limit reached\n"
+            f"P&L: *${pnl:+.2f}* (limit: -${limit_usd:.2f})"
+        )
+        log.warning("LOSS LIMIT: %s", text)
         await self._send(text)
 
     async def notify_daily_summary(

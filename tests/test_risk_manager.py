@@ -208,6 +208,7 @@ def _settle(db, hour_key: str, pnl: float, settled_offset_h: float = 0) -> None:
         "final_pnl_usd": pnl,
         "settled_at": (_utc(settled_offset_h)).isoformat(),
         "outcome": "win" if pnl > 0 else "loss",
+        "close_time_utc": None,
     })
 
 

@@ -124,7 +124,12 @@ class OrderExecutor:
 
                 # ── Size and place the order ──────────────────────────────────
                 fill_usd = min(line.remaining_capacity, depth_usd)
-                quantity = max(1, int(fill_usd / (price_cents / 100.0)))
+                contract_cost = price_cents / 100.0
+                if fill_usd < contract_cost:
+                    log.info("Line %s: remaining $%.2f < 1 contract cost $%.2f — done",
+                             line_id, fill_usd, contract_cost)
+                    break
+                quantity = int(fill_usd / contract_cost)
                 notional = quantity * price_cents / 100.0
 
                 resp = await kalshi.place_limit_order(
@@ -162,7 +167,10 @@ class OrderExecutor:
                         fill_notional, line.cumulative_filled, line.capacity_usd,
                     )
                 else:
-                    log.warning("Line %s: fill timeout for order %s", line_id, order_id)
+                    log.warning("Line %s: fill timeout for order %s — cancelling", line_id, order_id)
+                    cancelled = await kalshi.cancel_order(order_id)
+                    if cancelled and order_id in self._pending_order_ids:
+                        self._pending_order_ids.remove(order_id)
                     await asyncio.sleep(_LIQUIDITY_WAIT_S)
 
         except Exception as exc:
