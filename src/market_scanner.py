@@ -96,9 +96,9 @@ async def scan_qualifying_markets(
             candidates.append(QualifyingTrade(market=market, side="no"))
 
     if not candidates:
-        log.debug(
-            "No markets with ask in [%.2f, %.2f] for %s UTC settlement (spot=%.0f)",
-            lo, hi, settlement_utc.strftime("%H:%M"), spot,
+        log.info(
+            "scan: no markets with ask in [%.2f, %.2f] for %s UTC (spot=%.0f, %d markets checked)",
+            lo, hi, settlement_utc.strftime("%H:%M"), spot, len(current_hour_markets),
         )
         return []
 

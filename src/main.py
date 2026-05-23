@@ -178,6 +178,11 @@ async def _trading_loop(
                 await asyncio.sleep(_LOOP_INTERVAL_S)
                 continue
 
+            log.info(
+                "scan spot=%.0f rv_60=%.3f minute=%d",
+                price_state.spot, price_state.rv_60_annualized, now_et.minute,
+            )
+
             # ── Hourly cap already reached ────────────────────────────────────
             if tracker.lines_taken_this_hour(now_et) >= config.strategy.max_lines_per_hour:
                 log.debug("Hourly line cap reached — waiting")
