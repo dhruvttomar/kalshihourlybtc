@@ -1,23 +1,26 @@
-# B-97 Micro Live — $10/trade validation config
+# B-99 Micro Live — $10/trade validation config
 #
-# Purpose: run the B-97 strategy on a real Kalshi account with $10 fills
-# instead of $1,000. Real orders, real fills, real data — but capped
-# exposure of ~$10 per trade (worst-case loss = fill price × contracts).
+# Purpose: run the B-99 strategy on a real Kalshi account with $10 fills.
+# Buys deep-ITM YES contracts at 96–99¢. Real orders, real fills, real data
+# — capped exposure of ~$10 per trade.
+#
+# Why 99¢ cap: Kalshi's market maker prices deep-ITM YES at 99¢ flat.
+# No contracts with $400+ buffer below spot trade in the 95–97¢ range.
 #
 # Run with:
 #   python -m src.main --live --config config/b97_micro_live.yaml
 #
-# Expected P&L at this scale (from 4yr backtest, $10 fill):
-#   Win:  +$0.27/trade (10 contracts × $0.03 net)
-#   Loss: -$9.70/trade (contracts expire worthless)
-#   Break-even win rate: 97.3%  |  Observed: 99.6%
+# Expected P&L at this scale ($10 fill, 99¢ entry):
+#   Win:  ~+$0.10/trade (10 contracts × ~$0.01 net after fee)
+#   Loss: -$9.90/trade (contracts expire worthless)
+#   Break-even win rate: 99.0%  |  Historical (buffer ≥$400): ~99.6%
 
 strategy:
   min_minutes_into_hour: 25
   hour_end_cutoff_seconds: 60
-  yes_price_min: 0.95          # accept 95¢–97¢ YES contracts
-  yes_price_max: 0.97          # B-97: cap at 97¢
-  buffer_floor_usd: 400.0      # B-97: $400 minimum buffer below spot
+  yes_price_min: 0.96          # accept 96¢–99¢ YES contracts
+  yes_price_max: 0.99          # B-99: cap at 99¢ (Kalshi MM prices ITM at 99¢ flat)
+  buffer_floor_usd: 400.0      # $400 minimum buffer below spot
   buffer_sigma_multiplier: 2.0
   rv_baseline_multiplier: 1.5
   rv_hard_ceiling_annualized: 0.70
