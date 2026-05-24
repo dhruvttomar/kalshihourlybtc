@@ -198,11 +198,9 @@ class KalshiClient:
             except (ValueError, AttributeError):
                 continue
 
-            # Kalshi v2 returns prices in cents (int 1–99); normalize to dollars
-            yes_cents = m.get("yes_ask")
-            no_cents = m.get("no_ask")
-            yes_ask = yes_cents / 100.0 if yes_cents is not None else None
-            no_ask = no_cents / 100.0 if no_cents is not None else None
+            # Kalshi v2 returns prices as dollar strings e.g. "0.9700"
+            yes_ask = float(m["yes_ask_dollars"]) if m.get("yes_ask_dollars") else None
+            no_ask = float(m["no_ask_dollars"]) if m.get("no_ask_dollars") else None
 
             markets.append(Market(
                 ticker=m["ticker"],
