@@ -17,7 +17,7 @@ strategy:
   hour_end_cutoff_seconds: 60
   yes_price_min: 0.95          # accept 95¢–97¢ YES contracts
   yes_price_max: 0.97          # B-97: cap at 97¢
-  buffer_floor_usd: 400.0      # B-97: $400 minimum buffer below spot
+  buffer_floor_usd: 250.0      # B-97: $250 minimum buffer below spot
   buffer_sigma_multiplier: 2.0
   rv_baseline_multiplier: 1.5
   rv_hard_ceiling_annualized: 0.70
