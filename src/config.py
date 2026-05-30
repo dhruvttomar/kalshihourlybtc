@@ -26,6 +26,8 @@ class StrategyConfig(BaseModel):
     emergency_exit_rv_threshold: float = 0.70
     emergency_exit_min_minutes_remaining: int = 10
     max_day_risk_level_to_trade: int = 1
+    late_entry_min_minutes_into_hour: int = 50
+    late_entry_buffer_floor_usd: float = 100.0
 
 
 class RiskConfig(BaseModel):

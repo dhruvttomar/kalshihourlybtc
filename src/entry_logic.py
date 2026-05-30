@@ -137,11 +137,13 @@ def evaluate_entry(
     # ── 8. Buffer requirement ─────────────────────────────────────────────────
     spot = price_state.spot
     minutes_remaining = max(1, int(seconds_remaining / 60))
+    late_entry = now_et.minute >= config.late_entry_min_minutes_into_hour
+    buffer_floor = config.late_entry_buffer_floor_usd if late_entry else config.buffer_floor_usd
     required_buffer = dynamic_buffer(
         spot=spot,
         rv_annualized=rv_60,
         minutes_remaining=minutes_remaining,
-        floor=config.buffer_floor_usd,
+        floor=buffer_floor,
         sigma_multiplier=config.buffer_sigma_multiplier,
     )
     actual_buffer = trade.buffer_vs_spot(spot)

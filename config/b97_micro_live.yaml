@@ -15,9 +15,9 @@
 strategy:
   min_minutes_into_hour: 25
   hour_end_cutoff_seconds: 60
-  yes_price_min: 0.95          # accept 95¢–97¢ YES contracts
-  yes_price_max: 0.97          # B-97: cap at 97¢
-  buffer_floor_usd: 250.0      # B-97: $250 minimum buffer below spot
+  yes_price_min: 0.95          # accept 95¢–99¢ YES contracts
+  yes_price_max: 0.99
+  buffer_floor_usd: 250.0      # standard window: $250 minimum buffer
   buffer_sigma_multiplier: 2.0
   rv_baseline_multiplier: 1.5
   rv_hard_ceiling_annualized: 0.70
@@ -29,6 +29,8 @@ strategy:
   emergency_exit_rv_threshold: 0.70
   emergency_exit_min_minutes_remaining: 10
   max_day_risk_level_to_trade: 1
+  late_entry_min_minutes_into_hour: 50  # minute 50+ uses relaxed buffer floor
+  late_entry_buffer_floor_usd: 100.0    # $100 floor when ≤10 min to settlement
 
 risk:
   daily_loss_limit_pct: 0.15   # 15% of bankroll → ~$15/day max loss (1-2 trades)
